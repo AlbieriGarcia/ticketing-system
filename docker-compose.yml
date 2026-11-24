@@ -27,5 +27,15 @@ services:
       postgres:
         condition: service_healthy
 
+  php-scheduler:
+    build: ./php-service
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - ./php-service:/var/www/html
+      - /var/www/html/vendor
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
