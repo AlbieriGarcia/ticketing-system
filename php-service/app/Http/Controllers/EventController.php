@@ -61,7 +61,7 @@ class EventController extends Controller
         return new EventResource($this->eventService->changeStatus($event, $request->status()));
     }
 
-    // Un evento no publicado responde 404 a quien no es admin, para no revelar su existencia
+    // Un borrador responde 404 a quien no es admin, para no revelar su existencia
     private function ensureVisible(Event $event): void
     {
         abort_unless($event->isVisibleTo(request()->user('sanctum')), 404);

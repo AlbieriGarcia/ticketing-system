@@ -89,6 +89,17 @@ class EventTest extends TestCase
         $this->getJson("/api/events/{$event->id}")->assertNotFound();
     }
 
+    public function test_cancelled_event_is_visible_by_id_but_not_listed(): void
+    {
+        $event = Event::factory()->cancelled()->create();
+
+        $this->getJson("/api/events/{$event->id}")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'cancelled');
+
+        $this->getJson('/api/events')->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_availability_endpoint(): void
     {
         $event = Event::factory()->published()->create(['total_tickets' => 10, 'available_tickets' => 0]);

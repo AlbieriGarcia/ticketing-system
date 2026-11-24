@@ -60,7 +60,8 @@ class Event extends Model
 
     public function isVisibleTo(?User $user): bool
     {
-        return $this->status === EventStatus::Published || $user?->isAdmin();
+        // Solo el borrador es interno; terminados y cancelados siguen consultables para historial y reportes
+        return $this->status !== EventStatus::Draft || (bool) $user?->isAdmin();
     }
 
     // Entradas ya vendidas o retenidas en reservas activas

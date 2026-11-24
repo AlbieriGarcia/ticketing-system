@@ -23,7 +23,7 @@ class EventStatsOverview extends StatsOverviewWidget
         }
 
         if ($stats === null) {
-            return [Stat::make('Statistics', '—')->description('Available once the event is published')];
+            return [Stat::make('Statistics', '—')->description('Not available for draft events')];
         }
 
         $tickets = $stats['tickets'];
