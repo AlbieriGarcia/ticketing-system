@@ -2,24 +2,29 @@
 
 namespace Database\Seeders;
 
+use App\Enums\UserRole;
+use App\Models\Event;
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $admin = User::firstOrCreate(
+            ['email' => env('ADMIN_EMAIL', 'admin@tickets.test')],
+            ['name' => 'Admin', 'password' => env('ADMIN_PASSWORD', 'admin1234')],
+        );
+        $admin->forceFill(['role' => UserRole::Admin])->save();
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        User::firstOrCreate(
+            ['email' => 'customer@tickets.test'],
+            ['name' => 'Demo Customer', 'password' => 'customer1234'],
+        );
+
+        if (Event::query()->doesntExist()) {
+            Event::factory()->published()->count(5)->create();
+            Event::factory()->count(2)->create();
+        }
     }
 }
