@@ -56,6 +56,7 @@ class User extends Authenticatable implements FilamentUser
 
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->isAdmin();
+        // La tienda es para todos; el panel de administración solo para admins
+        return $panel->getId() === 'store' || $this->isAdmin();
     }
 }
