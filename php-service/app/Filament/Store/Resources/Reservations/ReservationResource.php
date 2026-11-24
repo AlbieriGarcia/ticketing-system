@@ -4,6 +4,7 @@ namespace App\Filament\Store\Resources\Reservations;
 
 use App\Enums\ReservationStatus;
 use App\Exceptions\ReservationException;
+use App\Filament\Store\Resources\Purchases\PurchaseResource;
 use App\Filament\Store\Resources\Reservations\Pages\ListReservations;
 use App\Models\Reservation;
 use App\Services\ReservationService;
@@ -86,6 +87,7 @@ class ReservationResource extends Resource
                         $livewire,
                         fn () => app(ReservationService::class)->confirm($record),
                         'Purchase completed',
+                        [Action::make('viewPurchases')->label('View my purchases')->url(PurchaseResource::getUrl())],
                     )),
                 Action::make('cancel')
                     ->label('Remove')
@@ -106,11 +108,11 @@ class ReservationResource extends Resource
     }
 
     // Ejecuta la operación del servicio, notifica el resultado y refresca el contador del carrito en la barra superior
-    private static function run(Component $livewire, callable $operation, string $successMessage): void
+    private static function run(Component $livewire, callable $operation, string $successMessage, array $links = []): void
     {
         try {
             $operation();
-            Notification::make()->success()->title($successMessage)->send();
+            Notification::make()->success()->title($successMessage)->actions($links)->send();
             $livewire->dispatch('refresh-topbar');
         } catch (ReservationException $e) {
             Notification::make()->danger()->title($e->getMessage())->send();
