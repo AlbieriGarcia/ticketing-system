@@ -2,22 +2,25 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: ${DB_DATABASE:-tickets}
-      POSTGRES_USER: ${DB_USERNAME:-tickets}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_DB: tickets
+      POSTGRES_USER: tickets
+      POSTGRES_PASSWORD: secret
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-tickets} -d ${DB_DATABASE:-tickets}"]
+      test: ["CMD-SHELL", "pg_isready -U tickets -d tickets"]
       interval: 5s
       timeout: 3s
       retries: 10
 
   php-api:
     build: ./php-service
+    image: ticketing-php
+    environment:
+      RUN_SETUP: "true"
     ports:
       - "8000:8000"
     volumes:
@@ -26,30 +29,35 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost:8000/up') === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 90s
 
   php-scheduler:
-    build: ./php-service
+    image: ticketing-php
+    pull_policy: never
     command: ["php", "artisan", "schedule:work"]
     volumes:
       - ./php-service:/var/www/html
       - /var/www/html/vendor
     depends_on:
-      postgres:
+      php-api:
         condition: service_healthy
 
   stats-api:
     build: ./dotnet-service
     environment:
       PhpApi__BaseUrl: http://php-api:8000/api
-      ConnectionStrings__Stats: Host=postgres;Port=5432;Database=${DB_DATABASE:-tickets};Username=stats_reader;Password=${STATS_DB_PASSWORD:-stats_secret}
+      ConnectionStrings__Stats: Host=postgres;Port=5432;Database=tickets;Username=stats_reader;Password=stats_secret
       Security__ApiKey: ${STATS_API_KEY:-dev-stats-key}
     ports:
       - "5000:5000"
     depends_on:
-      postgres:
-        condition: service_healthy
       php-api:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   pgdata:

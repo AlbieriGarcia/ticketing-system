@@ -13,6 +13,11 @@ RUN composer install --no-interaction --no-scripts --no-autoloader --prefer-dist
 COPY . .
 RUN composer dump-autoload --optimize
 
+# Fuera de /var/www/html para que el volumen de desarrollo no lo oculte ni pierda el permiso de ejecución
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint
+RUN chmod +x /usr/local/bin/entrypoint
+
 EXPOSE 8000
 
+ENTRYPOINT ["entrypoint"]
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000", "--no-reload"]
