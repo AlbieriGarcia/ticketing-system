@@ -18,7 +18,6 @@ services:
 
   php-api:
     build: ./php-service
-    env_file: ./php-service/.env
     ports:
       - "8000:8000"
     volumes:
