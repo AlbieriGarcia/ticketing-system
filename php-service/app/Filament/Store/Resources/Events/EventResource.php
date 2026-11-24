@@ -28,6 +28,8 @@ class EventResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    protected static ?int $navigationSort = 1;
+
     // El catálogo es público: se navega sin iniciar sesión
     protected static string|array $withoutRouteMiddleware = Authenticate::class;
 
