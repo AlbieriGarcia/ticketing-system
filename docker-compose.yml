@@ -37,5 +37,19 @@ services:
       postgres:
         condition: service_healthy
 
+  stats-api:
+    build: ./dotnet-service
+    environment:
+      PhpApi__BaseUrl: http://php-api:8000/api
+      ConnectionStrings__Stats: Host=postgres;Port=5432;Database=${DB_DATABASE:-tickets};Username=stats_reader;Password=${STATS_DB_PASSWORD:-stats_secret}
+      Security__ApiKey: ${STATS_API_KEY:-dev-stats-key}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      php-api:
+        condition: service_started
+
 volumes:
   pgdata:
