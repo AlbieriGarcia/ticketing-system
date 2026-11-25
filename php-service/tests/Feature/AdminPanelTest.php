@@ -23,9 +23,12 @@ class AdminPanelTest extends TestCase
         $this->get('/admin')->assertRedirect('/admin/login');
     }
 
-    public function test_customer_cannot_access_panel(): void
+    public function test_customer_is_sent_back_to_the_store(): void
     {
-        $this->actingAs(User::factory()->create())->get('/admin')->assertForbidden();
+        $this->actingAs(User::factory()->create())
+            ->get('/admin/users?page=2')
+            ->assertRedirect('/')
+            ->assertSessionHas('filament.notifications');
     }
 
     public function test_remember_me_token_is_persisted(): void
