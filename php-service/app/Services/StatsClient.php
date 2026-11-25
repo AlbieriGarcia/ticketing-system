@@ -5,25 +5,20 @@ namespace App\Services;
 use App\Exceptions\StatsUnavailableException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class StatsClient
 {
-    private const CACHE_SECONDS = 30;
-
+    // Sin caché aquí: .NET cachea las estadísticas y las invalida al recibir cada venta por RabbitMQ
     public function summary(int $top = 5): array
     {
-        // Los widgets del dashboard se cargan por separado: el caché evita una llamada a .NET por cada uno
-        return Cache::remember("stats.summary.{$top}", self::CACHE_SECONDS, function () use ($top) {
-            $response = $this->get('/api/stats/summary', ['top' => $top]);
+        $response = $this->get('/api/stats/summary', ['top' => $top]);
 
-            if ($response->failed()) {
-                throw new StatsUnavailableException();
-            }
+        if ($response->failed()) {
+            throw new StatsUnavailableException();
+        }
 
-            return $response->json();
-        });
+        return $response->json();
     }
 
     public function eventStats(int $eventId): ?array

@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Caching.Hybrid;
+using StatsService.Api.Infrastructure.Caching;
 
 namespace StatsService.Api.Features.SalesSummary;
 
@@ -15,6 +17,7 @@ public static class GetSalesSummaryEndpoint
 
     private static async Task<Results<Ok<SalesSummaryResponse>, ValidationProblem>> HandleAsync(
         GetSalesSummaryHandler handler,
+        HybridCache cache,
         int top = 5,
         CancellationToken cancellationToken = default)
     {
@@ -26,6 +29,13 @@ public static class GetSalesSummaryEndpoint
             });
         }
 
-        return TypedResults.Ok(await handler.HandleAsync(top, cancellationToken));
+        var summary = await cache.GetOrCreateAsync(
+            $"stats:summary:{top}",
+            (handler, top),
+            static (state, ct) => new ValueTask<SalesSummaryResponse>(state.handler.HandleAsync(state.top, ct)),
+            tags: [StatsCacheTags.Summary],
+            cancellationToken: cancellationToken);
+
+        return TypedResults.Ok(summary);
     }
 }

@@ -1,19 +1,10 @@
 using System.Net;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using StatsService.Api.Infrastructure.Errors;
 
 namespace StatsService.Api.Infrastructure.Php;
 
 public sealed class PhpEventsClient(HttpClient httpClient, ILogger<PhpEventsClient> logger) : IEventsClient
 {
-    // PHP serializa los decimales como string ("30000.00") y usa snake_case
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        NumberHandling = JsonNumberHandling.AllowReadingFromString,
-    };
-
     public async Task<PhpEvent> GetEventAsync(long id, CancellationToken cancellationToken)
     {
         var response = await SendAsync($"events/{id}", cancellationToken);
@@ -65,7 +56,7 @@ public sealed class PhpEventsClient(HttpClient httpClient, ILogger<PhpEventsClie
             throw new UpstreamUnavailableException($"Events service responded with status {(int)response.StatusCode}.");
         }
 
-        return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
+        return await response.Content.ReadFromJsonAsync<T>(PhpJson.Options, cancellationToken)
                ?? throw new UpstreamUnavailableException("Events service returned an empty response.");
     }
 

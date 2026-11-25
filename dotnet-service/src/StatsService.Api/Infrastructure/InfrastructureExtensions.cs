@@ -1,8 +1,10 @@
 using Dapper;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Npgsql;
 using StatsService.Api.Infrastructure.Errors;
+using StatsService.Api.Infrastructure.Messaging;
 using StatsService.Api.Infrastructure.Php;
 using StatsService.Api.Infrastructure.Security;
 
@@ -29,7 +31,7 @@ public static class InfrastructureExtensions
             .ValidateOnStart();
 
         services
-            .AddHttpClient<IEventsClient, PhpEventsClient>((sp, client) =>
+            .AddHttpClient<PhpEventsClient>((sp, client) =>
             {
                 var options = sp.GetRequiredService<IOptions<PhpApiOptions>>().Value;
                 client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
@@ -43,7 +45,39 @@ public static class InfrastructureExtensions
                 o.Retry.MaxRetryAttempts = 2;
             });
 
+        // Quien pide IEventsClient recibe la réplica con PHP por HTTP como respaldo
+        services.AddSingleton<EventReplica>();
+        services.AddTransient<IEventsClient>(sp => new ReplicatedEventsClient(
+            sp.GetRequiredService<PhpEventsClient>(),
+            sp.GetRequiredService<EventReplica>()));
+
+        services.AddHybridCache(o => o.DefaultEntryOptions = new HybridCacheEntryOptions
+        {
+            // Los mensajes invalidan al instante; el TTL solo acota lo viejo si el consumidor estuviera desconectado
+            Expiration = TimeSpan.FromMinutes(5),
+            LocalCacheExpiration = TimeSpan.FromMinutes(5),
+        });
+
+        services.AddMessaging(configuration);
+
         return services;
+    }
+
+    private static void AddMessaging(this IServiceCollection services, IConfiguration configuration)
+    {
+        var section = configuration.GetSection(RabbitMqOptions.SectionName);
+
+        if (!section.GetValue(nameof(RabbitMqOptions.Enabled), defaultValue: true))
+        {
+            return;
+        }
+
+        services.AddOptions<RabbitMqOptions>()
+            .Bind(section)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddHostedService<RabbitMqConsumer>();
     }
 
     public static IServiceCollection AddSwaggerDocs(this IServiceCollection services)

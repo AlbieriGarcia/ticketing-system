@@ -2,6 +2,7 @@ using System.Text.Json;
 using StatsService.Api.Features.EventStats;
 using StatsService.Api.Features.Events;
 using StatsService.Api.Features.SalesSummary;
+using StatsService.Api.Features.Sync;
 using StatsService.Api.Infrastructure;
 using StatsService.Api.Infrastructure.Security;
 
@@ -13,7 +14,8 @@ builder.Services.AddSwaggerDocs();
 
 builder.Services
     .AddEventStats()
-    .AddSalesSummary();
+    .AddSalesSummary()
+    .AddSync();
 
 var app = builder.Build();
 

@@ -6,7 +6,6 @@ use App\Exceptions\StatsUnavailableException;
 use App\Services\StatsClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -17,7 +16,6 @@ class StatsClientTest extends TestCase
         parent::setUp();
 
         config(['services.stats.url' => 'http://stats-api:5000', 'services.stats.key' => 'secret-key']);
-        Cache::flush();
     }
 
     public function test_summary_sends_api_key_and_returns_payload(): void
@@ -28,16 +26,6 @@ class StatsClientTest extends TestCase
 
         $this->assertSame(100, $summary['sales']['revenue']);
         Http::assertSent(fn (Request $request) => $request->hasHeader('X-Api-Key', 'secret-key'));
-    }
-
-    public function test_summary_is_cached(): void
-    {
-        Http::fake(['*' => Http::response(['sales' => []])]);
-
-        app(StatsClient::class)->summary();
-        app(StatsClient::class)->summary();
-
-        Http::assertSentCount(1);
     }
 
     public function test_event_stats_returns_null_when_event_not_found(): void

@@ -81,10 +81,15 @@ services:
       PhpApi__BaseUrl: http://php-api:8000/api
       ConnectionStrings__Stats: Host=postgres;Port=5432;Database=tickets;Username=stats_reader;Password=stats_secret
       Security__ApiKey: ${STATS_API_KEY:-dev-stats-key}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: tickets
+      RabbitMq__Password: secret
     ports:
       - "5000:5000"
     depends_on:
       php-api:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
 volumes:

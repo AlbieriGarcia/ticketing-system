@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Caching.Hybrid;
+using StatsService.Api.Infrastructure.Caching;
+
 namespace StatsService.Api.Features.EventStats;
 
 public static class GetEventStatsEndpoint
@@ -13,8 +16,18 @@ public static class GetEventStatsEndpoint
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-    private static Task<EventStatsResponse> HandleAsync(long id, GetEventStatsHandler handler, CancellationToken cancellationToken)
+    // Los errores no se cachean: un 404 o un 503 se vuelven a evaluar en la siguiente petición
+    private static async Task<EventStatsResponse> HandleAsync(
+        long id,
+        GetEventStatsHandler handler,
+        HybridCache cache,
+        CancellationToken cancellationToken)
     {
-        return handler.HandleAsync(id, cancellationToken);
+        return await cache.GetOrCreateAsync(
+            $"stats:event:{id}",
+            (handler, id),
+            static (state, ct) => new ValueTask<EventStatsResponse>(state.handler.HandleAsync(state.id, ct)),
+            tags: [StatsCacheTags.Event(id)],
+            cancellationToken: cancellationToken);
     }
 }

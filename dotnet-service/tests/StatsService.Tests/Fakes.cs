@@ -12,8 +12,12 @@ internal sealed class FakeEventsClient : IEventsClient
 
     public bool IsDown { get; set; }
 
+    public int GetEventCalls { get; private set; }
+
     public Task<PhpEvent> GetEventAsync(long id, CancellationToken cancellationToken)
     {
+        GetEventCalls++;
+
         if (IsDown)
         {
             throw new UpstreamUnavailableException("Events service is unavailable.");
@@ -49,6 +53,15 @@ internal sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     public override DateTimeOffset GetUtcNow() => now;
 }
 
+internal sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider
+{
+    private DateTimeOffset _now = now;
+
+    public override DateTimeOffset GetUtcNow() => _now;
+
+    public void Advance(TimeSpan by) => _now += by;
+}
+
 internal sealed class StubHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
@@ -64,7 +77,8 @@ internal static class TestData
 {
     public static readonly DateTimeOffset Now = new(2026, 11, 24, 12, 0, 0, TimeSpan.Zero);
 
-    public static PhpEvent Event(long id = 16, int total = 500, int available = 108, DateTimeOffset? date = null) => new(
+    public static PhpEvent Event(
+        long id = 16, int total = 500, int available = 108, DateTimeOffset? date = null, string status = "published") => new(
         id, "Rock Festival", "Annual", date ?? new DateTimeOffset(2026, 12, 20, 21, 0, 0, TimeSpan.Zero),
-        30000m, total, available, "published");
+        30000m, total, available, status);
 }
