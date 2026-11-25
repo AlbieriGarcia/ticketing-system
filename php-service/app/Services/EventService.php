@@ -6,6 +6,7 @@ use App\Enums\EventStatus;
 use App\Exceptions\EventNotEditableException;
 use App\Exceptions\InvalidEventDataException;
 use App\Exceptions\InvalidStatusTransitionException;
+use App\Messaging\IntegrationEvents;
 use App\Models\Event;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 class EventService
 {
+    public function __construct(private readonly IntegrationEvents $integrationEvents) {}
+
     public function list(array $filters, ?User $viewer): LengthAwarePaginator
     {
         $query = Event::query();
@@ -33,7 +36,12 @@ class EventService
 
     public function create(array $data): Event
     {
-        return Event::create([...$data, 'available_tickets' => $data['total_tickets']]);
+        return DB::transaction(function () use ($data) {
+            $event = Event::create([...$data, 'available_tickets' => $data['total_tickets']]);
+            $this->integrationEvents->eventChanged($event->id);
+
+            return $event;
+        });
     }
 
     public function update(Event $event, array $data): Event
@@ -57,6 +65,7 @@ class EventService
             }
 
             $event->update($data);
+            $this->integrationEvents->eventChanged($event->id);
 
             return $event;
         });
@@ -64,17 +73,23 @@ class EventService
 
     public function changeStatus(Event $event, EventStatus $next): Event
     {
-        if (! $event->status->canTransitionTo($next)) {
-            throw new InvalidStatusTransitionException($event->status, $next);
-        }
+        return DB::transaction(function () use ($event, $next) {
+            // Con el lock, la transición se valida contra el estado vigente y no contra una copia vieja
+            $event = Event::whereKey($event->id)->lockForUpdate()->firstOrFail();
 
-        if ($next === EventStatus::Published && $event->event_date->isPast()) {
-            throw InvalidEventDataException::pastDate();
-        }
+            if (! $event->status->canTransitionTo($next)) {
+                throw new InvalidStatusTransitionException($event->status, $next);
+            }
 
-        $event->status = $next;
-        $event->save();
+            if ($next === EventStatus::Published && $event->event_date->isPast()) {
+                throw InvalidEventDataException::pastDate();
+            }
 
-        return $event;
+            $event->status = $next;
+            $event->save();
+            $this->integrationEvents->eventChanged($event->id);
+
+            return $event;
+        });
     }
 }

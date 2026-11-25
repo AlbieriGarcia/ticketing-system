@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\ReservationStatus;
 use App\Exceptions\ReservationException;
+use App\Messaging\IntegrationEvents;
 use App\Models\Event;
 use App\Models\Reservation;
 use App\Models\TicketSale;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 class ReservationService
 {
+    public function __construct(private readonly IntegrationEvents $integrationEvents) {}
+
     public function reserve(User $user, Event $event, int $quantity): Reservation
     {
         try {
@@ -30,12 +33,16 @@ class ReservationService
 
                 $event->decrement('available_tickets', $quantity);
 
-                return Reservation::create([
+                $reservation = Reservation::create([
                     'user_id' => $user->id,
                     'event_id' => $event->id,
                     'quantity' => $quantity,
                     'expires_at' => now()->addMinutes(config('tickets.reservation_ttl_minutes')),
                 ]);
+
+                $this->integrationEvents->eventChanged($event->id);
+
+                return $reservation;
             });
         } catch (UniqueConstraintViolationException) {
             // El índice parcial uq_reservations_active garantiza una sola reserva pendiente por usuario y evento
@@ -69,7 +76,7 @@ class ReservationService
             $reservation->status = ReservationStatus::Confirmed;
             $reservation->save();
 
-            return TicketSale::create([
+            $sale = TicketSale::create([
                 'user_id' => $reservation->user_id,
                 'event_id' => $reservation->event_id,
                 'reservation_id' => $reservation->id,
@@ -78,6 +85,10 @@ class ReservationService
                 'total_amount' => bcmul($event->ticket_price, (string) $reservation->quantity, 2),
                 'purchase_date' => now(),
             ]);
+
+            $this->integrationEvents->saleCompleted($sale);
+
+            return $sale;
         });
 
         // Se lanza fuera de la transacción: si se lanzara dentro, el rollback desharía la liberación de las entradas
@@ -142,5 +153,6 @@ class ReservationService
         $reservation->status = $status;
         $reservation->save();
         Event::whereKey($reservation->event_id)->increment('available_tickets', $reservation->quantity);
+        $this->integrationEvents->eventChanged($reservation->event_id);
     }
 }

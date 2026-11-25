@@ -33,6 +33,15 @@ return [
         'key' => env('STATS_API_KEY'),
     ],
 
+    'rabbitmq' => [
+        'host' => env('RABBITMQ_HOST', 'rabbitmq'),
+        'port' => (int) env('RABBITMQ_PORT', 5672),
+        'user' => env('RABBITMQ_USER', 'tickets'),
+        'password' => env('RABBITMQ_PASSWORD', 'secret'),
+        'vhost' => env('RABBITMQ_VHOST', '/'),
+        'exchange' => env('RABBITMQ_EXCHANGE', 'ticketing'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

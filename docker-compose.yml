@@ -47,6 +47,34 @@ services:
       php-api:
         condition: service_healthy
 
+  php-outbox:
+    image: ticketing-php
+    pull_policy: never
+    command: ["php", "artisan", "outbox:relay"]
+    volumes:
+      - ./php-service:/var/www/html
+      - /var/www/html/vendor
+    depends_on:
+      php-api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: tickets
+      RABBITMQ_DEFAULT_PASS: secret
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   stats-api:
     build: ./dotnet-service
     environment:
