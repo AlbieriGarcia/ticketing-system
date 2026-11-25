@@ -8,6 +8,10 @@ using StatsService.Api.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Cada log lleva el TraceId/SpanId de la Activity en curso para poder correlacionarlo entre servicios
+builder.Logging.Configure(o => o.ActivityTrackingOptions =
+    ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId | ActivityTrackingOptions.ParentId);
+
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSwaggerDocs();

@@ -29,12 +29,11 @@ class RelayOutbox extends Command
                 $failures = 0;
 
                 if ($published > 0) {
-                    $this->info("Published {$published} message(s)");
+                    Log::info('Outbox messages published', ['count' => $published]);
                 }
             } catch (Throwable $e) {
                 $failures++;
                 Log::warning('Outbox relay failed, messages stay pending', ['error' => $e->getMessage(), 'attempt' => $failures]);
-                $this->error("Relay failed: {$e->getMessage()}");
 
                 if ($this->option('once')) {
                     return self::FAILURE;
