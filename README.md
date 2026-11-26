@@ -5,7 +5,7 @@ Sistema de venta de entradas compuesto por dos servicios que se integran entre s
 - **Servicio principal (PHP 8.4 / Laravel 12):** autenticación, gestión de eventos, reservas temporales, compras e historial. Expone una API REST (Sanctum) y dos paneles Filament: la **tienda** para clientes y el **panel de administración**.
 - **Servicio de estadísticas (.NET 10):** consulta de eventos, estadísticas de ventas por evento y resumen general. Se comunica con PHP por HTTP y consume sus eventos de dominio por **RabbitMQ**.
 
-Además de lo pedido incluye: carrito con reservas de 10 minutos, Docker Compose con arranque automático, mensajería con patrón *outbox*, frontend con Filament y tests automatizados en ambos servicios.
+Además de lo pedido incluye: carrito con reservas de 10 minutos, Docker Compose con arranque automático, mensajería con patrón *outbox*, frontend con Filament, observabilidad (logs estructurados, trazas distribuidas y alertas centralizadas en Seq) y tests automatizados en ambos servicios.
 
 ---
 
@@ -48,6 +48,7 @@ docker compose exec php-api php artisan migrate:fresh --seed
 | API de estadísticas (.NET) | http://localhost:5000/api |
 | Swagger de .NET | http://localhost:5000/swagger |
 | RabbitMQ Management | http://localhost:15672 |
+| Seq (logs, trazas y alertas) | http://localhost:5341 |
 
 ### Credenciales de demo (solo entorno local)
 
@@ -61,6 +62,7 @@ Son valores por defecto para levantar el proyecto en local; ya están en `docker
 | PostgreSQL (dueño del esquema) | `tickets` | `secret` |
 | PostgreSQL (solo lectura, .NET) | `stats_reader` | `stats_secret` |
 | RabbitMQ | `tickets` | `secret` |
+| Seq | `admin` | `seqadmin1234` |
 
 El seeder crea además 25 clientes, 6 eventos (publicados, un borrador y uno cancelado) y ventas de demo generadas a través del servicio real de reservas (respetan stock, precios y transacciones).
 
@@ -87,16 +89,21 @@ flowchart LR
     outbox -- "publica" --> mq{{"RabbitMQ<br/>exchange ticketing"}}
     mq -- "event.changed<br/>sale.completed" --> stats
     stats -- "SELECT (stats_reader)" --> pg
+
+    php_side -. "logs y spans (CLEF)" .-> seq[("Seq")]
+    stats -. "logs y spans (OTLP)" .-> seq
 ```
 
 | Contenedor | Responsabilidad |
 |---|---|
 | `postgres` | Base de datos. `docker/postgres/init.sql` crea la base de tests y el rol de solo lectura `stats_reader`. |
 | `php-api` | API REST, tienda y panel admin (`artisan serve` en el puerto 8000). Es el único que escribe datos de negocio. |
-| `php-scheduler` | Tareas programadas: expira reservas vencidas cada minuto y limpia el outbox a diario. |
+| `php-scheduler` | Tareas programadas: expira reservas vencidas y vigila el outbox cada minuto; limpia el outbox a diario. |
 | `php-outbox` | Publica en RabbitMQ los mensajes pendientes del outbox. |
 | `rabbitmq` | Broker de mensajería (con UI de administración). |
 | `stats-api` | Servicio de estadísticas en .NET (puerto 5000). |
+| `seq` | Centraliza logs, trazas y alertas de todos los servicios (UI en el puerto 5341). |
+| `seq-setup` | Tarea de un solo uso: fija la contraseña de admin de Seq y crea las alertas. |
 
 ### Servicio PHP (Laravel 12)
 
@@ -115,6 +122,7 @@ php-service/app/
 │   ├── ReservationService.php
 │   └── StatsClient.php  # Cliente HTTP hacia .NET
 ├── Messaging/           # Outbox y publicación en RabbitMQ
+├── Observability/       # Contexto de traza W3C y envío de logs a Seq
 ├── Models/  Enums/  Policies/  Exceptions/
 ├── Filament/            # Panel admin
 │   └── Store/           # Tienda para clientes
@@ -149,14 +157,15 @@ dotnet-service/src/StatsService.Api/
 └── Infrastructure/
     ├── Php/             # Cliente HTTP a PHP, réplica de eventos y decorador
     ├── Messaging/       # Consumidor de RabbitMQ
-    ├── Caching/         # Tags de caché
+    ├── Caching/         # Tags de caché y caché que conserva la traza
+    ├── Observability/   # OpenTelemetry y ActivitySource propio
     ├── Security/        # Middleware de API key
     └── Errors/          # Excepciones → ProblemDetails
 ```
 
 - **Lecturas con Dapper** sobre PostgreSQL usando el rol `stats_reader`, que solo tiene `SELECT`: .NET no puede modificar datos de negocio ni aunque quisiera.
 - **Seguridad:** todos los endpoints `/api` exigen el header `X-Api-Key`; Swagger es público.
-- **Errores:** respuestas `application/problem+json` (RFC 7807) para 400, 401, 404 y 503.
+- **Errores:** respuestas `application/problem+json` (RFC 7807) para 400, 401, 404 y 503, con el `trace_id` de la petición.
 - **Caché:** `HybridCache` con tags (`summary`, `event:{id}`) sobre los endpoints de estadísticas, invalidada por los mensajes de RabbitMQ.
 
 ---
@@ -236,7 +245,83 @@ Medido sobre el entorno local:
 | Un cliente reserva 3 entradas | on_hold 3 · available 459 | 0 |
 | El cliente confirma la compra | sold 41 · on_hold 0 | 0 |
 
-Se puede observar en vivo en RabbitMQ Management (colas `stats-service.ticketing` y `.dlq`) y con `docker compose logs -f php-outbox stats-api`.
+Se puede observar en vivo en RabbitMQ Management (colas `stats-service.ticketing` y `.dlq`) y, con todo el recorrido de cada operación, en Seq (ver [Observabilidad](#observabilidad)).
+
+---
+
+## Observabilidad
+
+Objetivo: ante cualquier error, encontrar en un solo lugar **todo el recorrido** de la operación que lo causó, aunque haya pasado por PHP, RabbitMQ y .NET.
+
+### Trazas distribuidas (W3C `traceparent`)
+
+Cada operación tiene un `trace_id` que viaja con ella por todos los saltos, usando el estándar W3C `traceparent` (el mismo de OpenTelemetry). Cada servicio crea su propio *span* colgado del span de quien lo llamó:
+
+| Salto | Cómo viaja la traza |
+|---|---|
+| Cliente → PHP | El middleware global `PropagateTraceContext` continúa el `traceparent` entrante o crea uno nuevo, y lo devuelve en el header `X-Trace-Id` |
+| PHP → .NET (HTTP) | `StatsClient` envía el header `traceparent`; ASP.NET Core lo lee de forma nativa |
+| PHP → RabbitMQ → .NET | Se guarda en la columna `outbox_messages.traceparent` **dentro de la transacción**, el relay lo publica como header AMQP y el consumidor .NET continúa la traza al procesar el mensaje |
+| .NET → PHP (fallback) | `HttpClient` propaga el `traceparent` automáticamente |
+| Tareas programadas | Cada ejecución de `reservations:expire` inicia su propia traza, que siguen los mensajes que genera |
+
+Un detalle resuelto en .NET: con un token cancelable (`RequestAborted`), `HybridCache` ejecuta la carga desacoplada de la petición, y la traza se perdía justo en la llamada a PHP. `GetOrCreateTracedAsync` la captura y la continúa (cubierto por un test).
+
+### Logs estructurados
+
+- **PHP:** un JSON por línea a stderr (canal `json`) y el mismo evento a Seq (canal `seq`). Todo log de una petición lleva `trace_id` y `span_id`, y cada petición deja una línea `HTTP {method} {path}` con status y duración.
+- **.NET:** JSON por consola con `TraceId` y `SpanId` en cada línea; con OpenTelemetry exporta logs y spans a Seq por OTLP.
+- **Errores:** todas las respuestas de error de ambos servicios incluyen el `trace_id`, también los 500, que no exponen ningún detalle interno:
+
+```json
+{ "message": "Server Error", "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736" }
+```
+
+### Seq: logs y trazas en un solo lugar
+
+http://localhost:5341 (`admin` / `seqadmin1234`). Para seguir una operación, filtrar por su traza:
+
+```
+@TraceId = '4bf92f3577b34da6a3ce929d0e0e4736'
+```
+
+y abrir la vista de traza desde cualquier evento (*Trace → Show*). Una compra se ve así:
+
+```
+php-api    HTTP POST /api/events/3/reservations          215 ms
+  stats-api  stats-service.ticketing process               36 ms   ← procesa el event.changed de esa reserva
+php-api    HTTP POST /api/reservations/89/confirm          74 ms
+  stats-api  stats-service.ticketing process                2 ms   ← procesa el sale.completed
+```
+
+Y una consulta de estadísticas que necesita el fallback encadena los cinco spans: petición a .NET → `cache populate` → llamada HTTP a PHP → petición en PHP.
+
+- **.NET** usa OpenTelemetry (instrumentación de ASP.NET Core, `HttpClient` y el `ActivitySource` propio) con exportador OTLP. Solo se activa si existe `OTEL_EXPORTER_OTLP_ENDPOINT`, así que los tests y `dotnet run` no necesitan Seq.
+- **PHP** envía sus logs en el formato nativo de Seq (CLEF) con `SeqHandler`. La línea de cada petición lleva su hora de inicio, por lo que Seq la muestra como un span con duración dentro de la traza.
+- **Best-effort:** si Seq no responde, PHP deja de intentarlo durante 30 s y ninguna petición falla por ello; los logs siguen saliendo por stderr (`docker compose logs`).
+
+### Alertas
+
+| Señal | Origen | Alerta en Seq |
+|---|---|---|
+| Logs de error o fatales | Cualquier servicio | **Errors in any service** |
+| Mensajes en la dead-letter queue | El consumidor .NET revisa la DLQ cada minuto y avisa mientras tenga mensajes (`DeadLetterCount`) | **Dead-letter queue not empty** |
+| Mensajes del outbox sin publicar durante más de 2 minutos | `outbox:monitor` en el scheduler, fuera del relay (si el relay cae, no podría avisar de sí mismo) | **Outbox backlog** |
+
+`seq-setup` crea las alertas en cada arranque si no existen. No tienen canal de notificación configurado: su estado e historial se ven en Seq → *Alerts*. El mensaje que acaba en la DLQ conserva su header `traceparent`, así que desde la cola se llega a la traza del fallo.
+
+### Ejemplo: rastrear un error
+
+```bash
+# 1. Una petición falla y la respuesta trae su trace_id
+curl -s http://localhost:8000/api/events/99999 -H "Accept: application/json"
+# {"message":"Resource not found.","trace_id":"7c95..."}
+
+# 2. En Seq: @TraceId = '7c95...'  → todos los logs y spans de esa petición, en cualquier servicio
+
+# 3. Sin Seq, el mismo trace_id sirve en los logs de los contenedores
+docker compose logs php-api php-outbox stats-api | grep 7c95...
+```
 
 ---
 
@@ -343,8 +428,8 @@ docker compose exec php-api php artisan test
 cd dotnet-service && dotnet test
 ```
 
-- **PHP (73 tests):** autenticación, CRUD y estados de eventos, reservas (stock, expiración, doble confirmación, aislamiento entre usuarios, sobreventa bloqueada por la base), outbox (mensaje dentro de la transacción, rollback, orden y fallo del broker), cliente de estadísticas y paneles Filament (tienda, carrito, compras y acceso al admin).
-- **.NET (28 tests):** handlers con fakes, cliente HTTP a PHP (errores y resiliencia), réplica de eventos (orden, duplicados, caducidad), decorador con fallback, handler de mensajes con el JSON real de PHP y tests de API con `WebApplicationFactory` (API key, ProblemDetails, validación e invalidación de caché por mensaje).
+- **PHP (94 tests):** autenticación, CRUD y estados de eventos, reservas (stock, expiración, doble confirmación, aislamiento entre usuarios, sobreventa bloqueada por la base), outbox (mensaje dentro de la transacción, rollback, orden, fallo del broker y vigilancia de pendientes), cliente de estadísticas, paneles Filament (tienda, carrito, compras y acceso al admin) y observabilidad (`traceparent`, propagación al outbox y a .NET, `trace_id` en errores, envío a Seq).
+- **.NET (33 tests):** handlers con fakes, cliente HTTP a PHP (errores y resiliencia), réplica de eventos (orden, duplicados, caducidad), decorador con fallback, handler de mensajes con el JSON real de PHP, extracción de la traza de los mensajes, caché que conserva la traza y tests de API con `WebApplicationFactory` (API key, ProblemDetails con `trace_id`, validación e invalidación de caché por mensaje).
 
 ---
 
@@ -362,6 +447,8 @@ cd dotnet-service && dotnet test
 | `RABBITMQ_HOST` · `RABBITMQ_PORT` · `RABBITMQ_USER` · `RABBITMQ_PASSWORD` · `RABBITMQ_VHOST` · `RABBITMQ_EXCHANGE` | `rabbitmq` · `5672` · `tickets` · `secret` · `/` · `ticketing` | Broker para el outbox |
 | `PHP_CLI_SERVER_WORKERS` | `4` | Workers de `artisan serve`; necesarios porque una petición del dashboard llama a .NET y .NET puede llamar de vuelta a PHP |
 | `SESSION_DRIVER` | `file` | Sesiones de Filament |
+| `LOG_STACK` | `json,seq` | Canales de log: JSON a stderr y Seq |
+| `SEQ_URL` · `SERVICE_NAME` | vacío · `php-api` | Seq y nombre del servicio en los logs; el compose los define por contenedor (`php-api`, `php-outbox`, `php-scheduler`) |
 
 ### .NET (variables de entorno en `docker-compose.yml`)
 
@@ -372,5 +459,13 @@ cd dotnet-service && dotnet test
 | `Security__ApiKey` | API key exigida en `X-Api-Key` (toma `STATS_API_KEY`, por defecto `dev-stats-key`) |
 | `RabbitMq__Host` · `RabbitMq__UserName` · `RabbitMq__Password` | Conexión al broker |
 | `RabbitMq__Enabled` | `false` desactiva el consumidor (se usa en los tests) |
+| `OTEL_SERVICE_NAME` · `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_EXPORTER_OTLP_PROTOCOL` | Variables estándar de OpenTelemetry; sin endpoint no se exporta nada |
+
+### Docker Compose
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `STATS_API_KEY` | `dev-stats-key` | API key compartida entre PHP y .NET |
+| `SEQ_ADMIN_PASSWORD` | `seqadmin1234` | Contraseña del admin de Seq (se fija en el primer arranque) |
 
 Para ejecutar .NET fuera de Docker (`dotnet run`), `appsettings.Development.json` apunta a `localhost` con las credenciales de demo.
