@@ -4,6 +4,7 @@ using StatsService.Api.Features.Events;
 using StatsService.Api.Features.SalesSummary;
 using StatsService.Api.Features.Sync;
 using StatsService.Api.Infrastructure;
+using StatsService.Api.Infrastructure.Observability;
 using StatsService.Api.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,7 @@ builder.Logging.Configure(o => o.ActivityTrackingOptions =
 
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddObservability(builder.Configuration);
 builder.Services.AddSwaggerDocs();
 
 builder.Services

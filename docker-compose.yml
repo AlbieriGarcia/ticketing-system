@@ -21,6 +21,8 @@ services:
     image: ticketing-php
     environment:
       RUN_SETUP: "true"
+      SERVICE_NAME: php-api
+      SEQ_URL: http://seq
     ports:
       - "8000:8000"
     volumes:
@@ -40,6 +42,9 @@ services:
     image: ticketing-php
     pull_policy: never
     command: ["php", "artisan", "schedule:work"]
+    environment:
+      SERVICE_NAME: php-scheduler
+      SEQ_URL: http://seq
     volumes:
       - ./php-service:/var/www/html
       - /var/www/html/vendor
@@ -51,6 +56,9 @@ services:
     image: ticketing-php
     pull_policy: never
     command: ["php", "artisan", "outbox:relay"]
+    environment:
+      SERVICE_NAME: php-outbox
+      SEQ_URL: http://seq
     volumes:
       - ./php-service:/var/www/html
       - /var/www/html/vendor
@@ -84,6 +92,9 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__UserName: tickets
       RabbitMq__Password: secret
+      OTEL_SERVICE_NAME: stats-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://seq/ingest/otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
     ports:
       - "5000:5000"
     depends_on:
@@ -92,5 +103,17 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # Logs y trazas centralizados de todos los servicios (UI en :5341). Sin autenticación: solo para entorno local
+  seq:
+    image: datalust/seq:2025.2
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
+    ports:
+      - "5341:80"
+    volumes:
+      - seqdata:/data
+
 volumes:
   pgdata:
+  seqdata:

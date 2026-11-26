@@ -1,5 +1,6 @@
 <?php
 
+use App\Observability\SeqHandler;
 use Monolog\Formatter\JsonFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
@@ -118,6 +119,20 @@ return [
             'formatter_with' => [
                 'includeStacktraces' => true,
             ],
+            'processors' => [PsrLogMessageProcessor::class],
+        ],
+
+        // Centraliza los logs en Seq junto a los de .NET; sin SEQ_URL no envía nada
+        'seq' => [
+            'driver' => 'monolog',
+            'level' => env('LOG_LEVEL', 'debug'),
+            'handler' => SeqHandler::class,
+            'handler_with' => [
+                'url' => env('SEQ_URL'),
+                'application' => env('SERVICE_NAME', 'php-api'),
+            ],
+            // "default" conserva el formateador CLEF del handler en vez del de Laravel
+            'formatter' => 'default',
             'processors' => [PsrLogMessageProcessor::class],
         ],
 
