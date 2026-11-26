@@ -296,6 +296,15 @@ php-api    HTTP POST /api/reservations/89/confirm          74 ms
 
 Y una consulta de estadísticas que necesita el fallback encadena los cinco spans: petición a .NET → `cache populate` → llamada HTTP a PHP → petición en PHP.
 
+**Recorrido de una compra.** Cada petición es su propia traza, así que reservar y confirmar desde la tienda son dos trazas distintas. Para unirlas, `ReservationService` registra eventos de negocio (`Reservation created`, `Purchase confirmed`, `Reservation released`) con `reservation_id`, `event_id` y `user_id`, y solo cuando la transacción se confirma. En Seq:
+
+```
+reservation_id = 93   → la reserva y la compra, cada una con su traza
+user_id = 2           → todo lo que hizo ese cliente, en orden
+```
+
+**Acciones de la tienda y el admin.** Todas las acciones de Filament llegan a `POST /livewire/update`, así que el span se nombra con el componente y la acción: `Livewire ViewEvent::reserve`, `Livewire ListReservations::confirm`.
+
 - **.NET** usa OpenTelemetry (instrumentación de ASP.NET Core, `HttpClient` y el `ActivitySource` propio) con exportador OTLP. Solo se activa si existe `OTEL_EXPORTER_OTLP_ENDPOINT`, así que los tests y `dotnet run` no necesitan Seq.
 - **PHP** envía sus logs en el formato nativo de Seq (CLEF) con `SeqHandler`. La línea de cada petición lleva su hora de inicio, por lo que Seq la muestra como un span con duración dentro de la traza.
 - **Best-effort:** si Seq no responde, PHP deja de intentarlo durante 30 s y ninguna petición falla por ello; los logs siguen saliendo por stderr (`docker compose logs`).
@@ -428,7 +437,7 @@ docker compose exec php-api php artisan test
 cd dotnet-service && dotnet test
 ```
 
-- **PHP (94 tests):** autenticación, CRUD y estados de eventos, reservas (stock, expiración, doble confirmación, aislamiento entre usuarios, sobreventa bloqueada por la base), outbox (mensaje dentro de la transacción, rollback, orden, fallo del broker y vigilancia de pendientes), cliente de estadísticas, paneles Filament (tienda, carrito, compras y acceso al admin) y observabilidad (`traceparent`, propagación al outbox y a .NET, `trace_id` en errores, envío a Seq).
+- **PHP (98 tests):** autenticación, CRUD y estados de eventos, reservas (stock, expiración, doble confirmación, aislamiento entre usuarios, sobreventa bloqueada por la base), outbox (mensaje dentro de la transacción, rollback, orden, fallo del broker y vigilancia de pendientes), cliente de estadísticas, paneles Filament (tienda, carrito, compras y acceso al admin) y observabilidad (`traceparent`, propagación al outbox y a .NET, `trace_id` en errores, envío a Seq, logs de negocio y nombres de spans de Livewire).
 - **.NET (33 tests):** handlers con fakes, cliente HTTP a PHP (errores y resiliencia), réplica de eventos (orden, duplicados, caducidad), decorador con fallback, handler de mensajes con el JSON real de PHP, extracción de la traza de los mensajes, caché que conserva la traza y tests de API con `WebApplicationFactory` (API key, ProblemDetails con `trace_id`, validación e invalidación de caché por mensaje).
 
 ---

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Messaging\AmqpPublisher;
 use App\Messaging\MessagePublisher;
+use App\Observability\LivewireSpanName;
 use App\Observability\TraceContext;
 use Illuminate\Support\ServiceProvider;
 
@@ -20,6 +21,6 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        LivewireSpanName::register();
     }
 }

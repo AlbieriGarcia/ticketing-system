@@ -11,6 +11,7 @@ use App\Models\TicketSale;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ReservationService
 {
@@ -41,6 +42,7 @@ class ReservationService
                 ]);
 
                 $this->integrationEvents->eventChanged($event->id);
+                $this->logAfterCommit('Reservation created', $reservation, ['expires_at' => $reservation->expires_at->toIso8601String()]);
 
                 return $reservation;
             });
@@ -87,6 +89,7 @@ class ReservationService
             ]);
 
             $this->integrationEvents->saleCompleted($sale);
+            $this->logAfterCommit('Purchase confirmed', $reservation, ['sale_id' => $sale->id, 'total_amount' => $sale->total_amount]);
 
             return $sale;
         });
@@ -153,6 +156,22 @@ class ReservationService
         $reservation->status = $status;
         $reservation->save();
         Event::whereKey($reservation->event_id)->increment('available_tickets', $reservation->quantity);
+        $this->logAfterCommit('Reservation released', $reservation, ['reason' => $status->value]);
         $this->integrationEvents->eventChanged($reservation->event_id);
+    }
+
+    // Solo se registra si la transacción se confirma: el log nunca cuenta algo que terminó en rollback.
+    // reservation_id y user_id permiten seguir en Seq todo el recorrido de una compra, aunque cada paso sea otra traza
+    private function logAfterCommit(string $message, Reservation $reservation, array $context = []): void
+    {
+        $context = [
+            'reservation_id' => $reservation->id,
+            'event_id' => $reservation->event_id,
+            'user_id' => $reservation->user_id,
+            'quantity' => $reservation->quantity,
+            ...$context,
+        ];
+
+        DB::afterCommit(fn () => Log::info($message, $context));
     }
 }

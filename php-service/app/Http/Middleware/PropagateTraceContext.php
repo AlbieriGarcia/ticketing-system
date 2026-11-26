@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Observability\LivewireSpanName;
 use App\Observability\TraceContext;
 use Closure;
 use DateTimeImmutable;
@@ -26,14 +27,19 @@ class PropagateTraceContext
 
         // El healthcheck llega cada pocos segundos y solo añadiría ruido
         if (! $request->is('up')) {
+            // En la tienda y el admin todas las acciones van a /livewire/update: se nombra el span con el componente y la acción
+            $livewireAction = $request->attributes->get(LivewireSpanName::ATTRIBUTE);
+
             // span_start convierte esta línea en el span de la request (Seq calcula la duración hasta el momento del log)
-            Log::info('HTTP {method} {path}', [
+            Log::info($livewireAction ? 'Livewire {livewire_action}' : 'HTTP {method} {path}', array_filter([
+                'livewire_action' => $livewireAction,
                 'method' => $request->method(),
                 'path' => '/'.ltrim($request->path(), '/'),
                 'status' => $response->getStatusCode(),
+                'user_id' => $request->user()?->id,
                 'duration_ms' => round((microtime(true) - (float) $startedAt->format('U.u')) * 1000, 1),
                 'span_start' => $startedAt->format('Y-m-d\TH:i:s.uP'),
-            ]);
+            ], fn ($value) => $value !== null));
         }
 
         return $response;
