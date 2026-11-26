@@ -7,6 +7,8 @@ Sistema de venta de entradas compuesto por dos servicios que se integran entre s
 
 Además de lo pedido incluye: carrito con reservas de 10 minutos, Docker Compose con arranque automático, mensajería con patrón *outbox*, frontend con Filament, observabilidad (logs estructurados, trazas distribuidas y alertas centralizadas en Seq) y tests automatizados en ambos servicios.
 
+**Evidencia de integración:** [docs/integration-evidence.md](docs/integration-evidence.md) muestra, con salidas y capturas reales, los dos servicios comunicándose en los tres sentidos y recuperándose cuando cae .NET o RabbitMQ.
+
 ---
 
 ## Inicio rápido
@@ -245,7 +247,7 @@ Medido sobre el entorno local:
 | Un cliente reserva 3 entradas | on_hold 3 · available 459 | 0 |
 | El cliente confirma la compra | sold 41 · on_hold 0 | 0 |
 
-Se puede observar en vivo en RabbitMQ Management (colas `stats-service.ticketing` y `.dlq`) y, con todo el recorrido de cada operación, en Seq (ver [Observabilidad](#observabilidad)).
+Se puede observar en vivo en RabbitMQ Management (colas `stats-service.ticketing` y `.dlq`) y, con todo el recorrido de cada operación, en Seq (ver [Observabilidad](#observabilidad)). Las capturas de cada escenario, incluidas las caídas de .NET y de RabbitMQ, están en la [evidencia de integración](docs/integration-evidence.md).
 
 ---
 
