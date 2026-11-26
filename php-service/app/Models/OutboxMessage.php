@@ -16,6 +16,7 @@ class OutboxMessage extends Model
         'message_id',
         'type',
         'payload',
+        'traceparent',
     ];
 
     protected function casts(): array

@@ -5,6 +5,7 @@ namespace App\Messaging;
 use App\Models\Event;
 use App\Models\OutboxMessage;
 use App\Models\TicketSale;
+use App\Observability\TraceContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use LogicException;
@@ -14,6 +15,8 @@ class IntegrationEvents
     public const EVENT_CHANGED = 'event.changed';
 
     public const SALE_COMPLETED = 'sale.completed';
+
+    public function __construct(private readonly TraceContext $trace) {}
 
     // Foto completa del evento: el consumidor reemplaza su copia sin depender de mensajes anteriores
     public function eventChanged(int $eventId): void
@@ -55,6 +58,7 @@ class IntegrationEvents
             'message_id' => (string) Str::uuid(),
             'type' => $type,
             'payload' => $payload,
+            'traceparent' => $this->trace->traceparent(),
         ]);
     }
 }

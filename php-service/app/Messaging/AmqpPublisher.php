@@ -8,6 +8,7 @@ use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Exchange\AMQPExchangeType;
 use PhpAmqpLib\Message\AMQPMessage;
+use PhpAmqpLib\Wire\AMQPTable;
 use RuntimeException;
 use Throwable;
 
@@ -101,12 +102,19 @@ class AmqpPublisher implements MessagePublisher
             'data' => $message->payload,
         ], JSON_THROW_ON_ERROR);
 
-        return new AMQPMessage($body, [
+        $properties = [
             'content_type' => 'application/json',
             'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
             'message_id' => $message->message_id,
             'type' => $message->type,
             'timestamp' => $message->created_at->getTimestamp(),
-        ]);
+        ];
+
+        // Va como header y no en el cuerpo: es metadato de transporte, igual que traceparent en HTTP
+        if ($message->traceparent !== null) {
+            $properties['application_headers'] = new AMQPTable(['traceparent' => $message->traceparent]);
+        }
+
+        return new AMQPMessage($body, $properties);
     }
 }

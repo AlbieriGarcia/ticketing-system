@@ -23,7 +23,7 @@ public static class GetEventStatsEndpoint
         HybridCache cache,
         CancellationToken cancellationToken)
     {
-        return await cache.GetOrCreateAsync(
+        return await cache.GetOrCreateTracedAsync(
             $"stats:event:{id}",
             (handler, id),
             static (state, ct) => new ValueTask<EventStatsResponse>(state.handler.HandleAsync(state.id, ct)),

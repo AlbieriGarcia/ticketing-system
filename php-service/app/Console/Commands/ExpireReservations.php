@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Observability\TraceContext;
 use App\Services\ReservationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -12,8 +13,11 @@ class ExpireReservations extends Command
 
     protected $description = 'Expire overdue pending reservations and release their tickets';
 
-    public function handle(ReservationService $reservationService): int
+    // Cada ejecución es su propia traza: las liberaciones y los mensajes que generan quedan agrupados
+    public function handle(ReservationService $reservationService, TraceContext $trace): int
     {
+        Log::shareContext($trace->logContext());
+
         $count = $reservationService->expireOverdue();
 
         if ($count > 0) {

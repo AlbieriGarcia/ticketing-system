@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Exceptions\StatsUnavailableException;
+use App\Observability\TraceContext;
 use App\Services\StatsClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -26,6 +27,16 @@ class StatsClientTest extends TestCase
 
         $this->assertSame(100, $summary['sales']['revenue']);
         Http::assertSent(fn (Request $request) => $request->hasHeader('X-Api-Key', 'secret-key'));
+    }
+
+    public function test_request_propagates_the_current_trace(): void
+    {
+        Http::fake(['*' => Http::response(['sales' => []])]);
+
+        app(StatsClient::class)->summary();
+
+        $traceparent = app(TraceContext::class)->traceparent();
+        Http::assertSent(fn (Request $request) => $request->hasHeader('traceparent', $traceparent));
     }
 
     public function test_event_stats_returns_null_when_event_not_found(): void

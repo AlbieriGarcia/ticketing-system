@@ -29,7 +29,7 @@ public static class GetSalesSummaryEndpoint
             });
         }
 
-        var summary = await cache.GetOrCreateAsync(
+        var summary = await cache.GetOrCreateTracedAsync(
             $"stats:summary:{top}",
             (handler, top),
             static (state, ct) => new ValueTask<SalesSummaryResponse>(state.handler.HandleAsync(state.top, ct)),

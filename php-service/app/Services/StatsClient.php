@@ -3,12 +3,15 @@
 namespace App\Services;
 
 use App\Exceptions\StatsUnavailableException;
+use App\Observability\TraceContext;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 class StatsClient
 {
+    public function __construct(private readonly TraceContext $trace) {}
+
     // Sin caché aquí: .NET cachea las estadísticas y las invalida al recibir cada venta por RabbitMQ
     public function summary(int $top = 5): array
     {
@@ -40,7 +43,10 @@ class StatsClient
     {
         try {
             return Http::baseUrl(config('services.stats.url'))
-                ->withHeaders(['X-Api-Key' => config('services.stats.key')])
+                ->withHeaders([
+                    'X-Api-Key' => config('services.stats.key'),
+                    'traceparent' => $this->trace->traceparent(),
+                ])
                 ->acceptJson()
                 ->connectTimeout(2)
                 ->timeout(8)

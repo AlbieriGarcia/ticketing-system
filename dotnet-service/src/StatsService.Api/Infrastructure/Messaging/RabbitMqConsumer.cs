@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using StatsService.Api.Infrastructure.Observability;
 using StatsService.Api.Infrastructure.Php;
 
 namespace StatsService.Api.Infrastructure.Messaging;
@@ -115,6 +117,14 @@ public sealed class RabbitMqConsumer(
 
     private async Task HandleDeliveryAsync(IChannel channel, BasicDeliverEventArgs delivery, CancellationToken cancellationToken)
     {
+        // Continúa la traza de la operación de PHP que originó el mensaje: sus logs y los de aquí comparten TraceId
+        using var activity = Telemetry.StartActivity(
+            $"{_options.Queue} process",
+            ActivityKind.Consumer,
+            MessageTraceContext.Extract(delivery.BasicProperties));
+        activity.SetTag("messaging.system", "rabbitmq");
+        activity.SetTag("messaging.message.id", delivery.BasicProperties.MessageId);
+
         try
         {
             var message = JsonSerializer.Deserialize<IntegrationMessage>(delivery.Body.Span, PhpJson.Options)
@@ -123,6 +133,11 @@ public sealed class RabbitMqConsumer(
             if (_handlers.TryGetValue(message.Type, out var handler))
             {
                 await handler.HandleAsync(message, cancellationToken);
+                logger.LogInformation(
+                    "Processed {Type} message {MessageId} (sequence {Sequence})",
+                    message.Type,
+                    message.MessageId,
+                    message.Sequence);
             }
             else
             {

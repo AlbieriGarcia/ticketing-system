@@ -27,10 +27,6 @@ class RelayOutbox extends Command
             try {
                 $published = $relay->relayBatch($batch);
                 $failures = 0;
-
-                if ($published > 0) {
-                    Log::info('Outbox messages published', ['count' => $published]);
-                }
             } catch (Throwable $e) {
                 $failures++;
                 Log::warning('Outbox relay failed, messages stay pending', ['error' => $e->getMessage(), 'attempt' => $failures]);
