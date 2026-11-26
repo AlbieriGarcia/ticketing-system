@@ -7,7 +7,9 @@ use App\Models\OutboxMessage;
 use App\Models\User;
 use App\Observability\TraceContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Sanctum;
+use RuntimeException;
 use Tests\TestCase;
 
 class TracePropagationTest extends TestCase
@@ -46,6 +48,30 @@ class TracePropagationTest extends TestCase
         $this->assertSame(self::TRACE_ID, TraceContext::parse($traceparent)->traceId);
         // El mensaje cuelga del span de esta request, no del de quien llamó
         $this->assertSame(app(TraceContext::class)->spanId, TraceContext::parse($traceparent)->spanId);
+    }
+
+    public function test_error_responses_include_the_trace_id(): void
+    {
+        $headers = ['traceparent' => $this->callerTraceparent()];
+
+        $this->getJson('/api/events/999999', $headers)->assertNotFound()->assertJsonPath('trace_id', self::TRACE_ID);
+        $this->getJson('/api/auth/me', $headers)->assertUnauthorized()->assertJsonPath('trace_id', self::TRACE_ID);
+        $this->postJson('/api/auth/login', [], $headers)->assertUnprocessable()->assertJsonPath('trace_id', self::TRACE_ID);
+    }
+
+    public function test_unexpected_error_hides_details_but_keeps_the_trace_id(): void
+    {
+        config(['app.debug' => false]);
+        Route::get('/api/test/failure', fn () => throw new RuntimeException('Database password is wrong'));
+
+        $this->getJson('/api/test/failure', ['traceparent' => $this->callerTraceparent()])
+            ->assertServerError()
+            ->assertExactJson(['message' => 'Server Error', 'trace_id' => self::TRACE_ID]);
+    }
+
+    public function test_successful_responses_do_not_change_their_body(): void
+    {
+        $this->getJson('/api/events')->assertOk()->assertJsonMissingPath('trace_id');
     }
 
     private function callerTraceparent(): string

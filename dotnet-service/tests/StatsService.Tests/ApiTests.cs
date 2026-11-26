@@ -84,6 +84,22 @@ public class ApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
     }
 
+    [Theory]
+    [InlineData("/api/stats/events/999", ApiKey)]
+    [InlineData("/api/stats/summary", null)]
+    public async Task Errors_return_the_caller_trace_id(string path, string? apiKey)
+    {
+        var client = Client(apiKey);
+        client.DefaultRequestHeaders.Add("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+
+        var response = await client.GetAsync(path);
+        var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+        // Mismo formato que PHP: solo el trace id, para buscarlo tal cual en los logs de ambos servicios
+        Assert.Equal("4bf92f3577b34da6a3ce929d0e0e4736", json.GetProperty("trace_id").GetString());
+        Assert.False(json.TryGetProperty("traceId", out _));
+    }
+
     [Fact]
     public async Task Php_down_returns_503()
     {

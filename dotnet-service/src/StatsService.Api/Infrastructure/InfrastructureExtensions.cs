@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Dapper;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Options;
@@ -16,7 +17,14 @@ public static class InfrastructureExtensions
     {
         DefaultTypeMap.MatchNamesWithUnderscores = true;
 
-        services.AddProblemDetails();
+        // Por defecto trace_id es el traceparent completo; se deja solo el trace id, el mismo valor que PHP devuelve y escribe en sus logs
+        services.AddProblemDetails(o => o.CustomizeProblemDetails = context =>
+        {
+            if (Activity.Current is { } activity)
+            {
+                context.ProblemDetails.Extensions["trace_id"] = activity.TraceId.ToHexString();
+            }
+        });
         services.AddExceptionHandler<GlobalExceptionHandler>();
         services.AddSingleton(TimeProvider.System);
         services.Configure<ApiKeyOptions>(configuration.GetSection(ApiKeyOptions.SectionName));
