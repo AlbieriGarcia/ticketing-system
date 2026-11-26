@@ -103,12 +103,15 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # Logs y trazas centralizados de todos los servicios (UI en :5341). Sin autenticación: solo para entorno local
+  # Logs y trazas centralizados de todos los servicios (UI en :5341)
+  # Con usuario admin: la licencia gratuita admite un solo usuario y sin login cada pestaña cuenta como uno distinto.
+  # La contraseña solo se aplica al crear el volumen; la ingesta de logs no requiere login
   seq:
     image: datalust/seq:2025.2
     environment:
       ACCEPT_EULA: "Y"
-      SEQ_FIRSTRUN_NOAUTHENTICATION: "true"
+      # Contraseña inicial temporal: Seq obliga a cambiarla en el primer login y seq-setup la cambia por SEQ_ADMIN_PASSWORD
+      SEQ_FIRSTRUN_ADMINPASSWORD: bootstrap-${SEQ_ADMIN_PASSWORD:-seqadmin1234}
     ports:
       - "5341:80"
     volumes:
@@ -118,6 +121,8 @@ services:
   seq-setup:
     image: curlimages/curl:8.11.1
     entrypoint: ["sh", "/setup.sh"]
+    environment:
+      SEQ_ADMIN_PASSWORD: ${SEQ_ADMIN_PASSWORD:-seqadmin1234}
     volumes:
       - ./docker/seq/setup.sh:/setup.sh:ro
     depends_on:
