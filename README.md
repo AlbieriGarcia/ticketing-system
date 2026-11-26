@@ -98,7 +98,7 @@ flowchart LR
 
 | Contenedor | Responsabilidad |
 |---|---|
-| `postgres` | Base de datos. `docker/postgres/init.sql` crea la base de tests y el rol de solo lectura `stats_reader`. |
+| `postgres` | Base de datos. `docker/postgres/init.sh` crea la base de tests y el rol de solo lectura `stats_reader` (contraseña en `STATS_READER_PASSWORD`). |
 | `php-api` | API REST, tienda y panel admin (`artisan serve` en el puerto 8000). Es el único que escribe datos de negocio. |
 | `php-scheduler` | Tareas programadas: expira reservas vencidas y vigila el outbox cada minuto; limpia el outbox a diario. |
 | `php-outbox` | Publica en RabbitMQ los mensajes pendientes del outbox. |
@@ -441,6 +441,18 @@ cd dotnet-service && dotnet test
 
 - **PHP (98 tests):** autenticación, CRUD y estados de eventos, reservas (stock, expiración, doble confirmación, aislamiento entre usuarios, sobreventa bloqueada por la base), outbox (mensaje dentro de la transacción, rollback, orden, fallo del broker y vigilancia de pendientes), cliente de estadísticas, paneles Filament (tienda, carrito, compras y acceso al admin) y observabilidad (`traceparent`, propagación al outbox y a .NET, `trace_id` en errores, envío a Seq, logs de negocio y nombres de spans de Livewire).
 - **.NET (33 tests):** handlers con fakes, cliente HTTP a PHP (errores y resiliencia), réplica de eventos (orden, duplicados, caducidad), decorador con fallback, handler de mensajes con el JSON real de PHP, extracción de la traza de los mensajes, caché que conserva la traza y tests de API con `WebApplicationFactory` (API key, ProblemDetails con `trace_id`, validación e invalidación de caché por mensaje).
+
+---
+
+## Despliegue
+
+Para publicarlo en un servidor se usa el mismo compose con `docker-compose.prod.yml` encima: Caddy como único punto de entrada con HTTPS automático, el resto de puertos cerrados a internet, `APP_ENV=production` y las contraseñas en un `.env` del servidor (plantilla en `.env.prod.example`).
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+Guía paso a paso (firewall, Docker, configuración y operación): [docs/deploy.md](docs/deploy.md).
 
 ---
 

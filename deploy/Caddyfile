@@ -1,0 +1,14 @@
+# DOMAIN llega del .env (p. ej. 203-0-113-10.sslip.io); Caddy obtiene y renueva los certificados solo
+
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy php-api:8000
+}
+
+stats.{$DOMAIN} {
+	reverse_proxy stats-api:5000
+}
+
+seq.{$DOMAIN} {
+	reverse_proxy seq:80
+}

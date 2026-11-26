@@ -1,0 +1,81 @@
+# Despliegue en un servidor, encima del compose local:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Los valores vienen del .env de la raíz (ver .env.prod.example). Solo Caddy (80/443) queda expuesto a internet:
+# el resto de puertos se enlaza a 127.0.0.1, porque Docker publica los puertos saltándose el firewall (ufw).
+
+x-php-env: &php-env
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: https://${DOMAIN:?}
+  LOG_LEVEL: info
+  DB_PASSWORD: ${DB_PASSWORD:?}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
+  STATS_API_KEY: ${STATS_API_KEY:?}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+      STATS_READER_PASSWORD: ${STATS_READER_PASSWORD:?}
+    ports: !override
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+
+  php-api:
+    environment:
+      <<: *php-env
+    ports: !override
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  php-scheduler:
+    environment:
+      <<: *php-env
+    restart: unless-stopped
+
+  php-outbox:
+    environment:
+      <<: *php-env
+
+  rabbitmq:
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?}
+    ports: !override
+      - "127.0.0.1:15672:15672"
+    restart: unless-stopped
+
+  stats-api:
+    environment:
+      ConnectionStrings__Stats: Host=postgres;Port=5432;Database=tickets;Username=stats_reader;Password=${STATS_READER_PASSWORD:?}
+      Security__ApiKey: ${STATS_API_KEY:?}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:?}
+    ports: !override
+      - "127.0.0.1:5000:5000"
+    restart: unless-stopped
+
+  seq:
+    ports: !override
+      - "127.0.0.1:5341:80"
+    restart: unless-stopped
+
+  # Único punto de entrada: HTTPS automático con Let's Encrypt para la app, la API .NET y Seq
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      php-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

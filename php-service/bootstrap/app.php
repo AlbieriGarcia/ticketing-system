@@ -21,6 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Primero de la cadena: todo lo que se registre en la request ya lleva el trace_id
         $middleware->prepend(PropagateTraceContext::class);
 
+        // Detrás de Caddy (HTTPS) las URLs deben generarse con https; php-api solo es accesible a través del proxy
+        $middleware->trustProxies(at: '*');
+
         // En la API un invitado recibe 401, no una redirección a una pantalla de login
         $middleware->redirectGuestsTo(fn (Request $request) => $request->is('api/*') ? null : '/login');
     })
