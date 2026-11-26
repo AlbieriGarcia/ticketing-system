@@ -15,6 +15,7 @@ public sealed class RabbitMqConsumer(
 {
     private const ushort PrefetchCount = 20;
     private const int MaxBackoffSeconds = 30;
+    private static readonly TimeSpan DeadLetterCheckInterval = TimeSpan.FromMinutes(1);
 
     private readonly RabbitMqOptions _options = options.Value;
     private readonly Dictionary<string, IMessageHandler> _handlers = handlers.ToDictionary(h => h.MessageType);
@@ -85,8 +86,29 @@ public sealed class RabbitMqConsumer(
         _failedAttempts = 0;
         logger.LogInformation("Consuming messages from queue {Queue}", _options.Queue);
 
-        await closed.Task.WaitAsync(cancellationToken);
+        // Mientras la conexión vive se vigila la DLQ: un mensaje ahí es una venta o un cambio que .NET no aplicó
+        while (!closed.Task.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await WarnIfDeadLettersAsync(channel, cancellationToken);
+            await Task.WhenAny(closed.Task, Task.Delay(DeadLetterCheckInterval, cancellationToken));
+        }
+
         logger.LogWarning("RabbitMQ connection closed, reconnecting");
+    }
+
+    private async Task WarnIfDeadLettersAsync(IChannel channel, CancellationToken cancellationToken)
+    {
+        var deadLetterQueue = $"{_options.Queue}.dlq";
+        var count = await channel.MessageCountAsync(deadLetterQueue, cancellationToken);
+
+        if (count > 0)
+        {
+            logger.LogWarning(
+                "Dead-letter queue {DeadLetterQueue} holds {DeadLetterCount} message(s)",
+                deadLetterQueue,
+                count);
+        }
     }
 
     // El consumidor es dueño de su cola: la declara junto con la dead-letter queue donde terminan los mensajes que fallan

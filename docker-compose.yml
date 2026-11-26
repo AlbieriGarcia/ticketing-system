@@ -114,6 +114,16 @@ services:
     volumes:
       - seqdata:/data
 
+  # Tarea de un solo uso: crea las alertas de Seq si faltan y termina
+  seq-setup:
+    image: curlimages/curl:8.11.1
+    entrypoint: ["sh", "/setup.sh"]
+    volumes:
+      - ./docker/seq/setup.sh:/setup.sh:ro
+    depends_on:
+      - seq
+    restart: "no"
+
 volumes:
   pgdata:
   seqdata:
